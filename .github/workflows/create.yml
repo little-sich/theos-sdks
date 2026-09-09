@@ -7,19 +7,21 @@ on:
         description: 'The device ID to download the IPSW for, e.g. "iPhone11,2"'
         required: true
         type: string
+        default: 'iPhone11,2'
       ipsw_version:
         description: 'The version to download the IPSW for, e.g. "16.5"'
         required: true
         type: string
-      dsc_basename:
-        description: 'The basename for the dyld_shared_cache in the IPSW'
+      dsc_arch:
+        description: 'dyld_shared_cache architecture'
         required: true
         type: string
-        default: 'dyld_shared_cache_arm64e'
+        default: 'arm64e'
       xcode_version:
         description: 'Xcode version, e.g. "14.4". Primarily used for the base SDK'
         required: true
         type: string
+        default: '16.4'
       xcrun_sdk_name:
         description: 'The value to pass to "xcrun --sdk", e.g. "iphoneos"'
         required: true
@@ -59,9 +61,6 @@ jobs:
           brew trust blacktop/tap
           brew install blacktop/tap/ipsw
 
-      - name: Install aria2
-        run: brew install aria2
-
       - name: Patch SDK
         id: patch-sdk
         env:
@@ -71,49 +70,24 @@ jobs:
           TBD_TOOL_PATH="$(pwd)/tbd/bin/tbd"
           SDK_OUTPUT_PATH="$(pwd)/${{ inputs.full_sdk_name }}.sdk"
 
-          DSC_BASENAME="${{ inputs.dsc_basename }}"
           XC_SDK_NAME="${{ inputs.xcrun_sdk_name }}"
 
           cd tools/
           PLATFORM_PATH="$(xcrun --sdk "${XC_SDK_NAME}" --show-sdk-platform-path)"
           BASE_SDK_PATH="$(xcrun --sdk "${XC_SDK_NAME}" --show-sdk-path)"
 
-          SYMBOLS_DIR="$(mktemp -d -t symbols)"
           IPSW_DOWNLOAD_DIR="$(mktemp -d -t ipsw)"
-          IPSW_EXTRACTION_DIR="$(mktemp -d -t ipsw)"
+          DSC_DIR="$(mktemp -d -t dsc)"
 
-          # `--dyld` is a convenient parameter for us, however it only supports iOS 16+
           IPSW_DOWNLOAD_URL="$(ipsw download ipsw --urls --version "${{ inputs.ipsw_version }}" --device "${{ inputs.ipsw_device }}")"
           echo "Downloading ${IPSW_DOWNLOAD_URL}"
           aria2c --dir "${IPSW_DOWNLOAD_DIR}" "${IPSW_DOWNLOAD_URL}"
 
-          unzip -d "${IPSW_EXTRACTION_DIR}" "${IPSW_DOWNLOAD_DIR}"/*.ipsw "*.dmg"
+          ipsw extract -d -a ${{ inputs.dsc_arch }} -o "${DSC_DIR}" "${IPSW_DOWNLOAD_DIR}"/*.ipsw
           # remove to save space
           rm "${IPSW_DOWNLOAD_DIR}"/*.ipsw
 
-          for DMG_FILE in "${IPSW_EXTRACTION_DIR}"/*.dmg; do
-            # new mount root for each dmg so we don't have to
-            # worry about how we iterate over the mount root
-            DMG_MOUNT_ROOT="$(mktemp -d -t dmg)"
-            # some of the dmgs can't be mounted - not sure why
-            hdiutil attach "${DMG_FILE}" -mountroot "${DMG_MOUNT_ROOT}" || true
-            for MOUNT_VOL in "${DMG_MOUNT_ROOT}"/*; do
-              DYLD_CACHE_PATH="${MOUNT_VOL}/System/Library/Caches/com.apple.dyld/${DSC_BASENAME}"
-              if [ -e "${DYLD_CACHE_PATH}" ]; then
-                break 2 # break out of DMG_FILE loop
-              fi
-              # here becuase we didn't find the dyld shared cache (didn't break)
-              unset DYLD_CACHE_PATH
-              hdiutil detach "${MOUNT_VOL}" || true # this fails occasionally - just ignore
-            done
-          done
-
-          echo "Found dyld_shared_cache: ${DYLD_CACHE_PATH}"
-
-          if [ -z "${DYLD_CACHE_PATH}" ]; then
-            echo "Failed to find ${DSC_BASENAME} in IPSW"
-            exit 1
-          fi
+          DYLD_CACHE_PATH=${DSC_DIR}/**
 
           ./create_patched_sdk_image.sh "${DYLD_CACHE_PATH}" "${SDK_OUTPUT_PATH}" "${BASE_SDK_PATH}" "${PLATFORM_PATH}" "${TBD_TOOL_PATH}"
 
