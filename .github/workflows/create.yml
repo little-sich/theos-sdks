@@ -55,7 +55,9 @@ jobs:
           make bin/tbd
 
       - name: Install blacktop/ipsw
-        run: brew install blacktop/tap/ipsw
+        run: |
+          brew trust blacktop/tap
+          brew install blacktop/tap/ipsw
 
       - name: Install aria2
         run: brew install aria2
