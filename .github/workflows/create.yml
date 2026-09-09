@@ -87,7 +87,7 @@ jobs:
           # remove to save space
           rm "${IPSW_DOWNLOAD_DIR}"/*.ipsw
 
-          DYLD_CACHE_PATH=${DSC_DIR}/**
+          DYLD_CACHE_PATH="$(echo ${DSC_DIR}/**)"
 
           ./create_patched_sdk_image.sh "${DYLD_CACHE_PATH}" "${SDK_OUTPUT_PATH}" "${BASE_SDK_PATH}" "${PLATFORM_PATH}" "${TBD_TOOL_PATH}"
 
